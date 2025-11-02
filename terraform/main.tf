@@ -44,9 +44,20 @@ data "aws_availability_zones" "available" {
 
 data "aws_caller_identity" "current" {}
 
-# Use specific hardened AMI directly
-locals {
-  hardened_ami_id = "ami-003b204ab100bb154"
+# Latest Ubuntu LTS AMI
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"]  # Canonical
+  
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-*-amd64-server-*"]
+  }
+  
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
 }
 
 # VPC Module
@@ -70,7 +81,7 @@ module "ec2" {
   vpc_id                = module.vpc.vpc_id
   private_subnet_id     = module.vpc.private_subnet_ids[0]
   instance_type         = var.instance_type
-  ami_id                = local.hardened_ami_id
+  ami_id                = data.aws_ami.ubuntu.id
   enable_ebs_encryption = var.enable_ebs_encryption
   ebs_kms_key_id        = var.ebs_kms_key_id
   allowed_ssh_cidrs     = var.allowed_ssh_cidrs

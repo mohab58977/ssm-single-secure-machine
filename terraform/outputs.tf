@@ -50,5 +50,10 @@ output "ssm_connection_command" {
 
 output "ami_id" {
   description = "AMI ID used for the instance"
-  value       = local.hardened_ami_id
+  value       = data.aws_ami.ubuntu.id
+}
+
+output "ami_name" {
+  description = "AMI name"
+  value       = data.aws_ami.ubuntu.name
 }

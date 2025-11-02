@@ -28,7 +28,6 @@ permissions:
 
 env:
   TF_VERSION: '1.9.8'
-  TG_VERSION: '0.67.16'
   AWS_REGION: 'us-east-1'
 
 jobs:
@@ -64,32 +63,26 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
           
-      - name: Install Terragrunt
-        run: |
-          wget -q https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TG_VERSION }}/terragrunt_linux_amd64
-          chmod +x terragrunt_linux_amd64
-          sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
-          terragrunt --version
-          
-      - name: Terragrunt Format Check
-        run: terragrunt hclfmt --terragrunt-check
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
         continue-on-error: true
-        
-      - name: Terragrunt Init
-        run: terragrunt init --terragrunt-non-interactive
+          
+      - name: Terraform Init
+        run: terraform init
         env:
           TF_INPUT: false
           
-      - name: Terragrunt Validate
-        run: terragrunt validate
+      - name: Terraform Validate
+        run: terraform validate
         
-      - name: Terragrunt Plan
+      - name: Terraform Plan
         id: plan
         run: |
-          terragrunt plan \
+          terraform plan \
             -input=false \
             -out=tfplan \
             ${{ inputs.action == 'destroy' && '-destroy' || '' }} \
+            -var="environment=${{ inputs.environment }}" \
             -no-color
         env:
           TF_INPUT: false
@@ -102,10 +95,10 @@ jobs:
           echo "::notice::Action '${{ inputs.action }}' requires manual approval in environment '${{ inputs.environment }}'"
           echo "Proceeding with ${{ inputs.action }}..."
           
-      - name: Terragrunt Apply
+      - name: Terraform Apply
         if: inputs.action == 'apply'
         run: |
-          terragrunt apply \
+          terraform apply \
             -input=false \
             -auto-approve \
             tfplan
@@ -113,12 +106,13 @@ jobs:
           TF_INPUT: false
           TF_IN_AUTOMATION: true
           
-      - name: Terragrunt Destroy
+      - name: Terraform Destroy
         if: inputs.action == 'destroy'
         run: |
-          terragrunt destroy \
+          terraform destroy \
             -input=false \
-            -auto-approve
+            -auto-approve \
+            -var="environment=${{ inputs.environment }}"
         env:
           TF_INPUT: false
           TF_IN_AUTOMATION: true

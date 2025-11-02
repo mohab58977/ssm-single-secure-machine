@@ -7,6 +7,34 @@ terraform {
       version = "~> 5.82"
     }
   }
+  
+  backend "s3" {
+    bucket         = "terr-backend-69"
+    key            = "terraform.tfstate"
+    region         = "us-east-1"
+    encrypt        = true
+    # KMS key ARN - update this after bootstrap
+    # kms_key_id     = "arn:aws:kms:us-east-1:ACCOUNT:key/KEY-ID"
+  }
+}
+
+provider "aws" {
+  region = var.aws_region
+  
+  default_tags {
+    tags = {
+      Project     = var.project_name
+      Environment = var.environment
+      ManagedBy   = "Terraform"
+      Repository  = "ssm-single-secure-machine"
+    }
+  }
+  
+  # Security best practices
+  skip_metadata_api_check     = false
+  skip_region_validation      = false
+  skip_credentials_validation = false
+  skip_requesting_account_id  = false
 }
 
 # Data sources

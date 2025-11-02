@@ -1,0 +1,22 @@
+# Example Terraform variables for bootstrap
+# Copy this to terraform.tfvars and customize
+
+project_name = "ssm-secure-machine"
+aws_region   = "us-east-1"
+
+# S3 bucket name for Terraform state
+# Must be globally unique
+state_bucket_name = "terr-backend-69"
+
+# Administrator role ARNs - ONLY these can decrypt and access the state
+# Example: Your admin role or root user
+administrator_role_arns = [
+  "arn:aws:iam::123456789012:role/AdminRole",
+  # "arn:aws:iam::123456789012:user/admin-user"
+]
+
+# Terraform execution role ARNs - can read/write state but with limited KMS access
+# Example: GitHub Actions OIDC role
+terraform_role_arns = [
+  "arn:aws:iam::123456789012:role/GitHubActionsRole",
+]

@@ -1,0 +1,145 @@
+name: Terraform Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Terraform Action'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+      environment:
+        description: 'Environment'
+        required: true
+        type: choice
+        default: 'dev'
+        options:
+          - dev
+          - staging
+          - prod
+
+permissions:
+  id-token: write   # Required for OIDC
+  contents: read    # Required to checkout code
+  pull-requests: write # Optional: for posting plan comments
+
+env:
+  TF_VERSION: '1.9.8'
+  TG_VERSION: '0.67.16'
+  AWS_REGION: 'us-east-1'
+
+jobs:
+  terraform:
+    name: 'Terraform ${{ inputs.action }}'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./terraform
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-${{ github.run_id }}
+          mask-aws-account-id: true
+          
+      - name: Verify AWS Identity
+        run: |
+          aws sts get-caller-identity
+          
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+          
+      - name: Install Terragrunt
+        run: |
+          wget -q https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TG_VERSION }}/terragrunt_linux_amd64
+          chmod +x terragrunt_linux_amd64
+          sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
+          terragrunt --version
+          
+      - name: Terragrunt Format Check
+        run: terragrunt hclfmt --terragrunt-check
+        continue-on-error: true
+        
+      - name: Terragrunt Init
+        run: terragrunt init --terragrunt-non-interactive
+        env:
+          TF_INPUT: false
+          
+      - name: Terragrunt Validate
+        run: terragrunt validate
+        
+      - name: Terragrunt Plan
+        id: plan
+        run: |
+          terragrunt plan \
+            -input=false \
+            -out=tfplan \
+            ${{ inputs.action == 'destroy' && '-destroy' || '' }} \
+            -no-color
+        env:
+          TF_INPUT: false
+          TF_IN_AUTOMATION: true
+        continue-on-error: false
+        
+      - name: Approval Required for Apply/Destroy
+        if: inputs.action == 'apply' || inputs.action == 'destroy'
+        run: |
+          echo "::notice::Action '${{ inputs.action }}' requires manual approval in environment '${{ inputs.environment }}'"
+          echo "Proceeding with ${{ inputs.action }}..."
+          
+      - name: Terragrunt Apply
+        if: inputs.action == 'apply'
+        run: |
+          terragrunt apply \
+            -input=false \
+            -auto-approve \
+            tfplan
+        env:
+          TF_INPUT: false
+          TF_IN_AUTOMATION: true
+          
+      - name: Terragrunt Destroy
+        if: inputs.action == 'destroy'
+        run: |
+          terragrunt destroy \
+            -input=false \
+            -auto-approve
+        env:
+          TF_INPUT: false
+          TF_IN_AUTOMATION: true
+          
+      - name: Cleanup Plan File
+        if: always()
+        run: |
+          rm -f tfplan
+          
+      - name: Security Scan with tfsec
+        if: inputs.action == 'plan'
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: ./terraform
+          soft_fail: false
+          
+      - name: Run Checkov Security Scan
+        if: inputs.action == 'plan'
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: ./terraform
+          framework: terraform
+          soft_fail: false
+          download_external_modules: true

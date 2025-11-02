@@ -1,0 +1,146 @@
+name: Bootstrap Terraform Backend
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Terraform Action'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+      state_bucket_name:
+        description: 'S3 Bucket Name for Terraform State'
+        required: true
+        type: string
+      administrator_role_arns:
+        description: 'Administrator Role ARNs (comma-separated)'
+        required: true
+        type: string
+      terraform_role_arns:
+        description: 'Terraform Role ARNs (comma-separated)'
+        required: true
+        type: string
+
+permissions:
+  id-token: write   # Required for OIDC
+  contents: read    # Required to checkout code
+
+env:
+  TF_VERSION: '1.9.8'
+  AWS_REGION: 'us-east-1'
+
+jobs:
+  bootstrap:
+    name: 'Bootstrap ${{ inputs.action }}'
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./bootstrap
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ADMIN_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-Bootstrap-${{ github.run_id }}
+          mask-aws-account-id: true
+          
+      - name: Verify AWS Identity
+        run: |
+          aws sts get-caller-identity
+          
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+          
+      - name: Create tfvars file
+        run: |
+          cat > terraform.tfvars <<EOF
+          project_name = "ssm-secure-machine"
+          aws_region   = "${{ env.AWS_REGION }}"
+          state_bucket_name = "${{ inputs.state_bucket_name }}"
+          administrator_role_arns = [
+            $(echo "${{ inputs.administrator_role_arns }}" | sed 's/,/",\n    "/g' | sed 's/^/    "/' | sed 's/$/",/' | sed '$ s/,$//')
+          ]
+          terraform_role_arns = [
+            $(echo "${{ inputs.terraform_role_arns }}" | sed 's/,/",\n    "/g' | sed 's/^/    "/' | sed 's/$/",/' | sed '$ s/,$//')
+          ]
+          EOF
+          
+          echo "Created terraform.tfvars:"
+          cat terraform.tfvars
+          
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+        
+      - name: Terraform Init
+        run: terraform init
+        env:
+          TF_INPUT: false
+          
+      - name: Terraform Validate
+        run: terraform validate
+        
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan \
+            -input=false \
+            -out=tfplan \
+            ${{ inputs.action == 'destroy' && '-destroy' || '' }} \
+            -no-color
+        env:
+          TF_INPUT: false
+          TF_IN_AUTOMATION: true
+        
+      - name: Terraform Apply
+        if: inputs.action == 'apply'
+        run: |
+          terraform apply \
+            -input=false \
+            -auto-approve \
+            tfplan
+        env:
+          TF_INPUT: false
+          TF_IN_AUTOMATION: true
+          
+      - name: Terraform Destroy
+        if: inputs.action == 'destroy'
+        run: |
+          terraform destroy \
+            -input=false \
+            -auto-approve
+        env:
+          TF_INPUT: false
+          TF_IN_AUTOMATION: true
+          
+      - name: Output Backend Configuration
+        if: inputs.action == 'apply'
+        run: |
+          echo "::notice::Backend created successfully!"
+          terraform output -raw terragrunt_backend_config
+          
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f tfplan
+          rm -f terraform.tfvars
+          
+      - name: Security Scan with tfsec
+        if: inputs.action == 'plan'
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: ./bootstrap
+          soft_fail: false

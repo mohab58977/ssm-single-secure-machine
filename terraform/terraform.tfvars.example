@@ -1,0 +1,28 @@
+# Example Terraform variables file
+# Copy this to terraform.tfvars and customize for your environment
+
+# Project configuration
+project_name = "ssm-secure-machine"
+environment  = "dev"
+aws_region   = "us-east-1"
+
+# Network configuration
+vpc_cidr = "10.0.0.0/16"
+
+# VPC Flow Logs
+enable_flow_logs    = true
+flow_logs_retention = 30
+
+# EC2 configuration
+instance_type = "t3.micro"
+
+# Security
+enable_ebs_encryption = true
+ebs_kms_key_id        = null  # Leave null to create a new KMS key
+
+# SSH access (not recommended - use SSM instead)
+# Only populate this for emergency access
+allowed_ssh_cidrs = []
+
+# Monitoring
+enable_monitoring = true

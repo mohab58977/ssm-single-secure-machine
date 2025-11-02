@@ -50,20 +50,20 @@ output "ssm_connection_command" {
 
 output "ami_id" {
   description = "AMI ID used for the instance"
-  value       = try(data.aws_ami.cis_hardened.id, data.aws_ami.amazon_linux_2.id)
+  value       = data.aws_ami.hardened.id
 }
 
 output "ami_name" {
   description = "AMI name used for the instance"
-  value       = try(data.aws_ami.cis_hardened.name, data.aws_ami.amazon_linux_2.name)
+  value       = data.aws_ami.hardened.name
 }
 
 output "ami_description" {
   description = "AMI description"
-  value       = try(data.aws_ami.cis_hardened.description, data.aws_ami.amazon_linux_2.description)
+  value       = data.aws_ami.hardened.description
 }
 
-output "is_cis_hardened" {
-  description = "Whether CIS hardened AMI is being used"
-  value       = try(data.aws_ami.cis_hardened.id, null) != null
+output "ami_creation_date" {
+  description = "AMI creation date"
+  value       = data.aws_ami.hardened.creation_date
 }

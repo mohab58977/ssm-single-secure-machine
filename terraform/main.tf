@@ -44,13 +44,14 @@ data "aws_availability_zones" "available" {
 
 data "aws_caller_identity" "current" {}
 
-data "aws_ami" "amazon_linux_2023" {
+# CIS Hardened Amazon Linux 2 AMI (latest available hardened image)
+data "aws_ami" "cis_hardened" {
   most_recent = true
-  owners      = ["amazon"]
+  owners      = ["679593333241"]  # CIS official hardened images
   
   filter {
     name   = "name"
-    values = ["al2023-ami-*-x86_64"]
+    values = ["CIS Amazon Linux 2 Benchmark*"]
   }
   
   filter {
@@ -61,6 +62,37 @@ data "aws_ami" "amazon_linux_2023" {
   filter {
     name   = "architecture"
     values = ["x86_64"]
+  }
+  
+  filter {
+    name   = "root-device-type"
+    values = ["ebs"]
+  }
+}
+
+# Fallback: Latest Amazon Linux 2 (if CIS not available)
+data "aws_ami" "amazon_linux_2" {
+  most_recent = true
+  owners      = ["amazon"]
+  
+  filter {
+    name   = "name"
+    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
+  }
+  
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+  
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
+  }
+  
+  filter {
+    name   = "root-device-type"
+    values = ["ebs"]
   }
 }
 
@@ -85,7 +117,8 @@ module "ec2" {
   vpc_id                = module.vpc.vpc_id
   private_subnet_id     = module.vpc.private_subnet_ids[0]
   instance_type         = var.instance_type
-  ami_id                = data.aws_ami.amazon_linux_2023.id
+  # Always use latest CIS hardened AMI, fallback to Amazon Linux 2
+  ami_id                = try(data.aws_ami.cis_hardened.id, data.aws_ami.amazon_linux_2.id)
   enable_ebs_encryption = var.enable_ebs_encryption
   ebs_kms_key_id        = var.ebs_kms_key_id
   allowed_ssh_cidrs     = var.allowed_ssh_cidrs

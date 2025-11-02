@@ -47,3 +47,23 @@ output "ssm_connection_command" {
   description = "Command to connect to instance via SSM"
   value       = "aws ssm start-session --target ${module.ec2.instance_id} --region ${var.aws_region}"
 }
+
+output "ami_id" {
+  description = "AMI ID used for the instance"
+  value       = try(data.aws_ami.cis_hardened.id, data.aws_ami.amazon_linux_2.id)
+}
+
+output "ami_name" {
+  description = "AMI name used for the instance"
+  value       = try(data.aws_ami.cis_hardened.name, data.aws_ami.amazon_linux_2.name)
+}
+
+output "ami_description" {
+  description = "AMI description"
+  value       = try(data.aws_ami.cis_hardened.description, data.aws_ami.amazon_linux_2.description)
+}
+
+output "is_cis_hardened" {
+  description = "Whether CIS hardened AMI is being used"
+  value       = try(data.aws_ami.cis_hardened.id, null) != null
+}

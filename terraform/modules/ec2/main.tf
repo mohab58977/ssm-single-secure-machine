@@ -205,7 +205,9 @@ resource "aws_instance" "main" {
     encrypted   = var.enable_ebs_encryption
     kms_key_id  = var.enable_ebs_encryption ? (var.ebs_kms_key_id != null ? var.ebs_kms_key_id : aws_kms_key.ebs[0].arn) : null
     volume_type = "gp3"
-    volume_size = 20
+    volume_size = 30  # 30GB minimum for CIS hardened AMI snapshots
+    iops        = 3000  # gp3 baseline
+    throughput  = 125   # gp3 baseline MB/s
     
     delete_on_termination = true
     

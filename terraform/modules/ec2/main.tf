@@ -197,6 +197,9 @@ resource "aws_instance" "main" {
   # Security: Enable monitoring
   monitoring = var.enable_monitoring
   
+  # CKV_AWS_135: Enable EBS optimization
+  ebs_optimized = true
+  
   # Security: EBS encryption
   root_block_device {
     encrypted   = var.enable_ebs_encryption
@@ -242,7 +245,7 @@ resource "aws_instance" "main" {
 # CloudWatch Log Group for instance logs
 resource "aws_cloudwatch_log_group" "instance" {
   name              = "/aws/ec2/${var.project_name}-${var.environment}"
-  retention_in_days = 30
+  retention_in_days = 365  # CKV_AWS_338: At least 1 year retention
   kms_key_id        = aws_kms_key.logs.arn
   
   tags = {

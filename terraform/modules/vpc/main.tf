@@ -156,7 +156,7 @@ resource "aws_flow_log" "main" {
 resource "aws_cloudwatch_log_group" "flow_logs" {
   count             = var.enable_flow_logs ? 1 : 0
   name              = "/aws/vpc/${var.project_name}-${var.environment}-flow-logs"
-  retention_in_days = var.flow_logs_retention
+  retention_in_days = var.flow_logs_retention >= 365 ? var.flow_logs_retention : 365  # CKV_AWS_338: Minimum 1 year
   kms_key_id        = aws_kms_key.flow_logs[0].arn
   
   tags = {
@@ -170,6 +170,43 @@ resource "aws_kms_key" "flow_logs" {
   description             = "KMS key for VPC Flow Logs encryption"
   deletion_window_in_days = 30
   enable_key_rotation     = true
+  
+  # CKV2_AWS_64: Define explicit KMS key policy
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "Enable IAM User Permissions"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow CloudWatch Logs"
+        Effect = "Allow"
+        Principal = {
+          Service = "logs.${data.aws_region.current.name}.amazonaws.com"
+        }
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:CreateGrant",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+        Condition = {
+          ArnLike = {
+            "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:*"
+          }
+        }
+      }
+    ]
+  })
   
   tags = {
     Name = "${var.project_name}-${var.environment}-flow-logs-kms"
@@ -211,6 +248,7 @@ resource "aws_iam_role_policy" "flow_logs" {
   name  = "${var.project_name}-${var.environment}-flow-logs-policy"
   role  = aws_iam_role.flow_logs[0].id
   
+  # CKV_AWS_355 & CKV_AWS_290: Restrict resource to specific log group
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -223,7 +261,10 @@ resource "aws_iam_role_policy" "flow_logs" {
           "logs:DescribeLogGroups",
           "logs:DescribeLogStreams"
         ]
-        Resource = "*"
+        Resource = [
+          aws_cloudwatch_log_group.flow_logs[0].arn,
+          "${aws_cloudwatch_log_group.flow_logs[0].arn}:*"
+        ]
       }
     ]
   })
@@ -244,7 +285,17 @@ resource "aws_network_acl" "private" {
     to_port    = 0
   }
   
-  # Ingress: Allow return traffic
+  # CKV_AWS_231: Explicitly deny RDP (3389) from 0.0.0.0/0
+  ingress {
+    protocol   = "tcp"
+    rule_no    = 50
+    action     = "deny"
+    cidr_block = "0.0.0.0/0"
+    from_port  = 3389
+    to_port    = 3389
+  }
+  
+  # Ingress: Allow return traffic (ephemeral ports)
   ingress {
     protocol   = "tcp"
     rule_no    = 110
@@ -273,6 +324,16 @@ resource "aws_network_acl" "private" {
 resource "aws_network_acl" "public" {
   vpc_id     = aws_vpc.main.id
   subnet_ids = aws_subnet.public[*].id
+  
+  # CKV_AWS_231: Explicitly deny RDP (3389) from 0.0.0.0/0
+  ingress {
+    protocol   = "tcp"
+    rule_no    = 50
+    action     = "deny"
+    cidr_block = "0.0.0.0/0"
+    from_port  = 3389
+    to_port    = 3389
+  }
   
   # Ingress: Allow HTTP
   ingress {
@@ -390,12 +451,13 @@ resource "aws_security_group" "vpc_endpoints" {
     cidr_blocks = [var.vpc_cidr]
   }
   
+  # CKV_AWS_382: Restrict egress to HTTPS only within VPC
   egress {
-    description = "Allow all outbound"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    description = "HTTPS to VPC"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
   }
   
   tags = {
@@ -408,3 +470,15 @@ resource "aws_security_group" "vpc_endpoints" {
 }
 
 data "aws_region" "current" {}
+data "aws_caller_identity" "current" {}
+
+# CKV2_AWS_12: Restrict default security group
+resource "aws_default_security_group" "default" {
+  vpc_id = aws_vpc.main.id
+  
+  # No ingress or egress rules - deny all traffic
+  
+  tags = {
+    Name = "${var.project_name}-${var.environment}-default-sg-restricted"
+  }
+}

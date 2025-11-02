@@ -44,15 +44,9 @@ data "aws_availability_zones" "available" {
 
 data "aws_caller_identity" "current" {}
 
-# Use specific hardened AMI
-data "aws_ami" "hardened" {
-  most_recent = false
-  owners      = ["amazon"]  # or appropriate owner
-  
-  filter {
-    name   = "image-id"
-    values = ["ami-003b204ab100bb154"]
-  }
+# Use specific hardened AMI directly
+locals {
+  hardened_ami_id = "ami-003b204ab100bb154"
 }
 
 # VPC Module
@@ -76,7 +70,7 @@ module "ec2" {
   vpc_id                = module.vpc.vpc_id
   private_subnet_id     = module.vpc.private_subnet_ids[0]
   instance_type         = var.instance_type
-  ami_id                = data.aws_ami.hardened.id
+  ami_id                = local.hardened_ami_id
   enable_ebs_encryption = var.enable_ebs_encryption
   ebs_kms_key_id        = var.ebs_kms_key_id
   allowed_ssh_cidrs     = var.allowed_ssh_cidrs

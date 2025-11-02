@@ -50,20 +50,5 @@ output "ssm_connection_command" {
 
 output "ami_id" {
   description = "AMI ID used for the instance"
-  value       = data.aws_ami.hardened.id
-}
-
-output "ami_name" {
-  description = "AMI name used for the instance"
-  value       = data.aws_ami.hardened.name
-}
-
-output "ami_description" {
-  description = "AMI description"
-  value       = data.aws_ami.hardened.description
-}
-
-output "ami_creation_date" {
-  description = "AMI creation date"
-  value       = data.aws_ami.hardened.creation_date
+  value       = local.hardened_ami_id
 }

@@ -229,14 +229,8 @@ resource "aws_cloudfront_response_headers_policy" "security_headers" {
     }
   }
 
-  # Additional custom headers
+  # Additional custom headers (non-security headers only)
   custom_headers_config {
-    items {
-      header   = "X-Content-Type-Options"
-      value    = "nosniff"
-      override = true
-    }
-
     items {
       header   = "Permissions-Policy"
       value    = "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"

@@ -13,24 +13,34 @@ resource "aws_security_group" "instance" {
     cidr_blocks = [var.vpc_cidr]
   }
   
-  # Egress: Allow HTTPS to internet for package updates (NAT Gateway)
+  # Egress: Allow HTTPS to internet for package updates
   #tfsec:ignore:aws-ec2-no-public-egress-sgr
   egress {
-    description = "HTTPS for package updates via NAT"
+    description = "HTTPS for package updates"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]  # Required for dnf updates, routed via NAT Gateway
+    cidr_blocks = ["0.0.0.0/0"]
   }
   
-  # Egress: Allow HTTP to internet for package updates (NAT Gateway)
+  # Egress: Allow HTTP to internet for package updates and public access
   #tfsec:ignore:aws-ec2-no-public-egress-sgr
   egress {
-    description = "HTTP for package updates via NAT"
+    description = "HTTP for package updates and web traffic"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]  # Required for dnf updates, routed via NAT Gateway
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  
+  # Ingress: Allow HTTP from anywhere (public web server)
+  #tfsec:ignore:aws-ec2-no-public-ingress-sgr
+  ingress {
+    description = "HTTP from internet"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
   
   # Egress: Allow DNS to VPC DNS resolver
@@ -199,11 +209,12 @@ resource "aws_kms_alias" "ebs" {
 
 # EC2 Instance
 resource "aws_instance" "main" {
-  ami                    = var.ami_id
-  instance_type          = var.instance_type
-  subnet_id              = var.private_subnet_id
-  vpc_security_group_ids = [aws_security_group.instance.id]
-  iam_instance_profile   = aws_iam_instance_profile.instance.name
+  ami                         = var.ami_id
+  instance_type               = var.instance_type
+  subnet_id                   = var.private_subnet_id
+  vpc_security_group_ids      = [aws_security_group.instance.id]
+  iam_instance_profile        = aws_iam_instance_profile.instance.name
+  associate_public_ip_address = var.assign_public_ip
   
   # Security: IMDSv2 required
   metadata_options {

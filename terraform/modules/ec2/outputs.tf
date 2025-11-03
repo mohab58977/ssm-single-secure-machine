@@ -28,6 +28,11 @@ output "instance_role_name" {
   value       = aws_iam_role.instance.name
 }
 
+output "instance_public_ip" {
+  description = "Public IP of the EC2 instance"
+  value       = aws_instance.main.public_ip
+}
+
 output "cloudwatch_log_group_name" {
   description = "Name of the CloudWatch log group"
   value       = aws_cloudwatch_log_group.instance.name

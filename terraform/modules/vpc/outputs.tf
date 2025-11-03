@@ -19,8 +19,8 @@ output "public_subnet_ids" {
 }
 
 output "nat_gateway_ips" {
-  description = "Elastic IPs of NAT Gateways"
-  value       = aws_eip.nat[*].public_ip
+  description = "Elastic IPs of NAT Gateways (disabled)"
+  value       = []
 }
 
 output "vpc_endpoint_ssm_id" {

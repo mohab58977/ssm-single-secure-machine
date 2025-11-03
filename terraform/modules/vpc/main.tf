@@ -33,17 +33,17 @@ resource "aws_internet_gateway" "main" {
   }
 }
 
-# Elastic IPs for NAT Gateways
-resource "aws_eip" "nat" {
-  count  = length(var.availability_zones)
-  domain = "vpc"
-  
-  tags = {
-    Name = "${var.project_name}-${var.environment}-nat-eip-${count.index + 1}"
-  }
-  
-  depends_on = [aws_internet_gateway.main]
-}
+# Elastic IPs for NAT Gateways disabled (using public subnet)
+# resource "aws_eip" "nat" {
+#   count  = length(var.availability_zones)
+#   domain = "vpc"
+#   
+#   tags = {
+#     Name = "${var.project_name}-${var.environment}-nat-eip-${count.index + 1}"
+#   }
+#   
+#   depends_on = [aws_internet_gateway.main]
+# }
 
 # Public Subnets
 resource "aws_subnet" "public" {
@@ -77,18 +77,18 @@ resource "aws_subnet" "private" {
   }
 }
 
-# NAT Gateways (one per AZ for high availability)
-resource "aws_nat_gateway" "main" {
-  count         = length(var.availability_zones)
-  allocation_id = aws_eip.nat[count.index].id
-  subnet_id     = aws_subnet.public[count.index].id
-  
-  tags = {
-    Name = "${var.project_name}-${var.environment}-nat-gw-${count.index + 1}"
-  }
-  
-  depends_on = [aws_internet_gateway.main]
-}
+# NAT Gateways disabled (EC2 in public subnet with direct internet access)
+# resource "aws_nat_gateway" "main" {
+#   count         = length(var.availability_zones)
+#   allocation_id = aws_eip.nat[count.index].id
+#   subnet_id     = aws_subnet.public[count.index].id
+#   
+#   tags = {
+#     Name = "${var.project_name}-${var.environment}-nat-gw-${count.index + 1}"
+#   }
+#   
+#   depends_on = [aws_internet_gateway.main]
+# }
 
 # Public Route Table
 resource "aws_route_table" "public" {
@@ -123,13 +123,13 @@ resource "aws_route_table" "private" {
   }
 }
 
-# Private Routes to NAT Gateways
-resource "aws_route" "private_nat" {
-  count                  = length(var.availability_zones)
-  route_table_id         = aws_route_table.private[count.index].id
-  destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id         = aws_nat_gateway.main[count.index].id
-}
+# Private Routes to NAT Gateways disabled
+# resource "aws_route" "private_nat" {
+#   count                  = length(var.availability_zones)
+#   route_table_id         = aws_route_table.private[count.index].id
+#   destination_cidr_block = "0.0.0.0/0"
+#   nat_gateway_id         = aws_nat_gateway.main[count.index].id
+# }
 
 # Associate Private Subnets with Private Route Tables
 resource "aws_route_table_association" "private" {

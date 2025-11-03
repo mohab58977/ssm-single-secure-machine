@@ -82,13 +82,14 @@ module "ec2" {
   environment           = var.environment
   vpc_id                = module.vpc.vpc_id
   vpc_cidr              = var.vpc_cidr
-  private_subnet_id     = module.vpc.private_subnet_ids[0]
+  private_subnet_id     = module.vpc.public_subnet_ids[0]
   instance_type         = var.instance_type
   ami_id                = data.aws_ami.al2023.id
   enable_ebs_encryption = var.enable_ebs_encryption
   ebs_kms_key_id        = var.ebs_kms_key_id
   allowed_ssh_cidrs     = var.allowed_ssh_cidrs
   enable_monitoring     = var.enable_monitoring
+  assign_public_ip      = true
   
   # CloudFront security (optional)
   cloudfront_secret_header_name  = var.enable_cloudfront ? module.cloudfront[0].secret_header_name : ""

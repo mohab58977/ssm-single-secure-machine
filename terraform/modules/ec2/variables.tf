@@ -19,8 +19,14 @@ variable "vpc_cidr" {
 }
 
 variable "private_subnet_id" {
-  description = "Private subnet ID for EC2 instance"
+  description = "Subnet ID for EC2 instance (can be public or private)"
   type        = string
+}
+
+variable "assign_public_ip" {
+  description = "Assign a public IP to the EC2 instance"
+  type        = bool
+  default     = false
 }
 
 variable "instance_type" {

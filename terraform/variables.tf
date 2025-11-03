@@ -96,5 +96,5 @@ variable "github_branch" {
 variable "enable_cloudfront" {
   description = "Whether to create CloudFront distribution (set false if account not verified)"
   type        = bool
-  default     = false
+  default     = true
 }

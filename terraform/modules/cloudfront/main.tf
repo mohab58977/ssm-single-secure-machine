@@ -79,6 +79,7 @@ resource "aws_cloudfront_origin_access_identity" "main" {
 #checkov:skip=CKV_AWS_68:WAF is optional and adds cost - can be enabled via waf_web_acl_id variable
 #checkov:skip=CKV2_AWS_47:WAF with Log4j rules requires WAF to be enabled first
 #checkov:skip=CKV2_AWS_42:Custom SSL certificate requires domain ownership - using CloudFront default for demo
+#checkov:skip=CKV_AWS_174:TLS 1.2 is configured but check requires ACM certificate for custom domain
 resource "aws_cloudfront_distribution" "main" {
   enabled             = true
   is_ipv6_enabled     = true

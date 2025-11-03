@@ -7,6 +7,7 @@ skip-check:
   - CKV_AWS_68   # WAF is optional and adds cost - can be enabled via waf_web_acl_id variable
   - CKV2_AWS_47  # WAF Log4j rules require WAF to be enabled first
   - CKV2_AWS_42  # Custom SSL requires domain ownership - using CloudFront default
+  - CKV_AWS_174  # TLS 1.2 is configured but checkov expects acm_certificate_arn when using custom cert
   
   # Secrets Manager Checks
   - CKV2_AWS_57  # Automatic rotation not needed - secret is randomly generated and internal

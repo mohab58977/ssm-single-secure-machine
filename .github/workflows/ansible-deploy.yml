@@ -215,19 +215,146 @@ jobs:
         run: |
           echo "Amazon Linux 2023 includes Python3 by default; skipping bootstrap."
 
-      - name: Run Ansible playbook
-        env:
-          CLOUDFRONT_SECRET_HEADER: ${{ steps.secrets.outputs.header_name }}
-          CLOUDFRONT_SECRET_VALUE: ${{ steps.secrets.outputs.header_value }}
-          ANSIBLE_HOST_KEY_CHECKING: 'False'
-          ANSIBLE_STDOUT_CALLBACK: 'yaml'
+      - name: Deploy Nginx configuration via SSM
         run: |
-          echo "Deploying image with Ansible..."
-          ansible-playbook \
-            -i inventory.ini \
-            deploy-image.yml \
-            -v \
-            --timeout 300
+          echo "Deploying Nginx configuration..."
+          INSTANCE_ID="${{ steps.config.outputs.instance_id }}"
+          
+          # Create deployment script
+          cat > deploy.sh << 'DEPLOY_EOF'
+          #!/bin/bash
+          set -e
+          
+          echo "Installing Nginx..."
+          sudo dnf install -y nginx
+          
+          echo "Creating web root..."
+          sudo mkdir -p /var/www/html
+          sudo chown -R nginx:nginx /var/www/html
+          
+          echo "Downloading logo.png from repository..."
+          sudo curl -L -o /var/www/html/logo.png \
+            "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/logo.png" \
+            || echo "Warning: Could not download logo.png"
+          sudo chown nginx:nginx /var/www/html/logo.png || true
+          
+          echo "Creating index.html..."
+          cat <<'HTML_EOF' | sudo tee /var/www/html/index.html
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Farming B.V. - Secure Logo Hosting</title>
+              <style>
+                  body { margin: 0; padding: 20px; display: flex; justify-content: center; 
+                         align-items: center; min-height: 100vh; background-color: #f5f5f5; 
+                         font-family: Arial, sans-serif; }
+                  .container { text-align: center; max-width: 800px; }
+                  h1 { color: #2c5f2d; margin-bottom: 10px; }
+                  p { color: #666; margin-bottom: 30px; }
+                  img { max-width: 100%; height: auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
+                        border-radius: 8px; }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <h1>Farming B.V.</h1>
+                  <p>Proudly serving groceries for over a century</p>
+                  <img src="/logo.png" alt="Farming B.V. Logo" onerror="this.style.display='none'">
+              </div>
+          </body>
+          </html>
+          HTML_EOF
+          
+          echo "Configuring Nginx..."
+          cat <<'NGINX_EOF' | sudo tee /etc/nginx/nginx.conf
+          user nginx;
+          worker_processes auto;
+          error_log /var/log/nginx/error.log notice;
+          pid /run/nginx.pid;
+          
+          events { worker_connections 1024; }
+          
+          http {
+              include /etc/nginx/mime.types;
+              default_type application/octet-stream;
+              sendfile on;
+              keepalive_timeout 65;
+              server_tokens off;
+              
+              server {
+                  listen 80;
+                  server_name _;
+                  root /var/www/html;
+                  index index.html;
+                  
+                  location / { try_files \$uri \$uri/ =404; }
+              }
+          }
+          NGINX_EOF
+          
+          echo "Testing Nginx configuration..."
+          sudo nginx -t
+          
+          echo "Enabling and restarting Nginx..."
+          sudo systemctl enable nginx
+          sudo systemctl restart nginx
+          
+          echo "Configuring firewall..."
+          sudo firewall-cmd --permanent --add-service=http || true
+          sudo firewall-cmd --reload || true
+          
+          echo "Deployment complete!"
+          DEPLOY_EOF
+          
+          chmod +x deploy.sh
+          
+          # Upload and execute script via SSM
+          aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=[
+              'curl -o /tmp/deploy.sh https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/deploy.sh || cat > /tmp/deploy.sh',
+              'bash /tmp/deploy.sh'
+            ]" \
+            --output text \
+            --query "Command.CommandId" > command_id.txt
+          
+          COMMAND_ID=$(cat command_id.txt)
+          echo "Command ID: $COMMAND_ID"
+          
+          # Wait for command to complete
+          echo "Waiting for deployment to complete..."
+          for i in {1..60}; do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --query "Status" \
+              --output text)
+            
+            echo "Attempt $i/60: Status=$STATUS"
+            
+            if [ "$STATUS" = "Success" ]; then
+              echo "✅ Deployment completed successfully!"
+              aws ssm get-command-invocation \
+                --command-id "$COMMAND_ID" \
+                --instance-id "$INSTANCE_ID" \
+                --query "StandardOutputContent" \
+                --output text
+              break
+            elif [ "$STATUS" = "Failed" ]; then
+              echo "❌ Deployment failed!"
+              aws ssm get-command-invocation \
+                --command-id "$COMMAND_ID" \
+                --instance-id "$INSTANCE_ID" \
+                --query "StandardErrorContent" \
+                --output text
+              exit 1
+            fi
+            
+            sleep 5
+          done
 
       - name: Verify deployment
         run: |

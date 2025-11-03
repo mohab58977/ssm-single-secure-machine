@@ -220,7 +220,7 @@ jobs:
                   root /var/www/html;
                   index index.html;
                   
-                  location / { try_files \$uri \$uri/ =404; }
+          location / { try_files $uri $uri/ =404; }
               }
           }
           NGINX_EOF

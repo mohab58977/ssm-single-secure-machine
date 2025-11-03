@@ -7,7 +7,7 @@
     local_image_path: "{{ playbook_dir }}/logo.png"
     web_root: "/var/www/html"
     cloudfront_secret_header: "{{ lookup('env', 'CLOUDFRONT_SECRET_HEADER') }}"
-    cloudfront_secret_value: "{{ lookup('env', 'CLOUDFRONT_SECRET_VALUE') }}
+    cloudfront_secret_value: "{{ lookup('env', 'CLOUDFRONT_SECRET_VALUE') }}"
     
   tasks:
     - name: Install required packages (Amazon Linux)
@@ -183,13 +183,11 @@
         permanent: yes
         state: enabled
         immediate: yes
-      when: ansible_os_family == "RedHat"
 
     - name: Reload firewalld
       systemd:
         name: firewalld
         state: reloaded
-      when: ansible_os_family == "RedHat"
 
     - name: Verify deployment
       uri:

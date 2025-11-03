@@ -228,9 +228,11 @@ jobs:
           echo "Testing Nginx configuration..."
           sudo nginx -t
           
-          echo "Enabling and restarting Nginx..."
+          echo "Enabling and starting Nginx..."
           sudo systemctl enable nginx
-          sudo systemctl restart nginx
+          sudo systemctl stop nginx 2>/dev/null || true
+          sudo systemctl start nginx
+          sleep 2
           
           echo "Configuring firewall..."
           sudo firewall-cmd --permanent --add-service=http || true
@@ -247,13 +249,13 @@ jobs:
           
           chmod +x deploy.sh
           
-          # Send script content directly via SSM
-          SCRIPT_CONTENT=$(cat deploy.sh | base64)
+          # Send script content directly via SSM (using proper JSON array format)
+          SCRIPT_BASE64=$(cat deploy.sh | base64 -w 0 2>/dev/null || cat deploy.sh | base64)
           
           aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters commands="echo $SCRIPT_CONTENT | base64 -d > /tmp/deploy.sh && chmod +x /tmp/deploy.sh && bash /tmp/deploy.sh" \
+            --parameters "commands=[\"echo '$SCRIPT_BASE64' | base64 -d > /tmp/deploy.sh\",\"chmod +x /tmp/deploy.sh\",\"bash /tmp/deploy.sh\"]" \
             --output text \
             --query "Command.CommandId" > command_id.txt
           

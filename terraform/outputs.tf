@@ -57,3 +57,33 @@ output "ami_name" {
   description = "AMI name"
   value       = data.aws_ami.ubuntu.name
 }
+
+output "elastic_ip" {
+  description = "Elastic IP address of the EC2 instance"
+  value       = aws_eip.ec2.public_ip
+}
+
+output "ec2_public_dns" {
+  description = "Public DNS of the EC2 instance"
+  value       = aws_eip.ec2.public_dns
+}
+
+output "cloudfront_url" {
+  description = "CloudFront distribution URL (HTTPS)"
+  value       = module.cloudfront.cloudfront_url
+}
+
+output "cloudfront_domain" {
+  description = "CloudFront domain name"
+  value       = module.cloudfront.cloudfront_domain_name
+}
+
+output "image_url" {
+  description = "Public URL to access the hosted image"
+  value       = "${module.cloudfront.cloudfront_url}/logo.png"
+}
+
+output "secrets_manager_arn" {
+  description = "ARN of Secrets Manager secret for CloudFront verification"
+  value       = module.cloudfront.secrets_manager_arn
+}

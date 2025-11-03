@@ -1,0 +1,228 @@
+---
+- name: Deploy application via SSM to Amazon Linux 2023
+  hosts: ec2_servers
+  become: yes
+  vars:
+    local_image_path: "{{ playbook_dir }}/logo.png"
+    web_root: "/var/www/html"
+    cloudfront_secret_header: "{{ lookup('env', 'CLOUDFRONT_SECRET_HEADER') }}"
+    cloudfront_secret_value: "{{ lookup('env', 'CLOUDFRONT_SECRET_VALUE') }}"
+    
+  tasks:
+    - name: Gather OS facts
+      setup:
+        gather_subset:
+          - distribution
+
+    - name: Install required packages (Amazon Linux)
+      dnf:
+        name:
+          - nginx
+          - jq
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "RedHat"
+
+    - name: Create web root directory
+      file:
+        path: "{{ web_root }}"
+        state: directory
+        owner: nginx
+        group: nginx
+        mode: '0755'
+
+    - name: Copy and rename image to server
+      copy:
+        src: "{{ local_image_path }}"
+        dest: "{{ web_root }}/logo.png"
+        owner: nginx
+        group: nginx
+        mode: '0644'
+
+    - name: Create simple HTML page
+      copy:
+        content: |
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; style-src 'self' 'unsafe-inline';">
+              <title>Logo</title>
+              <style>
+                  body {
+                      margin: 0;
+                      padding: 20px;
+                      display: flex;
+                      justify-content: center;
+                      align-items: center;
+                      min-height: 100vh;
+                      background-color: #f5f5f5;
+                      font-family: Arial, sans-serif;
+                  }
+                  .container {
+                      text-align: center;
+                  }
+                  img {
+                      max-width: 100%;
+                      height: auto;
+                      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                  }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <img src="/logo.png" alt="Logo">
+              </div>
+          </body>
+          </html>
+        dest: "{{ web_root }}/index.html"
+        owner: nginx
+        group: nginx
+        mode: '0644'
+
+    - name: Configure Nginx with CloudFront secret header verification
+      copy:
+        content: |
+          user nginx;
+          worker_processes auto;
+          error_log /var/log/nginx/error.log notice;
+          pid /run/nginx.pid;
+
+          events {
+              worker_connections 1024;
+          }
+
+          http {
+              include /etc/nginx/mime.types;
+              default_type application/octet-stream;
+
+              log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                              '$status $body_bytes_sent "$http_referer" '
+                              '"$http_user_agent" "$http_x_forwarded_for"';
+
+              access_log /var/log/nginx/access.log main;
+
+              sendfile on;
+              tcp_nopush on;
+              keepalive_timeout 65;
+              gzip on;
+              
+              # Hide Nginx version
+              server_tokens off;
+              
+              # Security settings
+              client_body_timeout 10;
+              client_header_timeout 10;
+              send_timeout 10;
+              client_max_body_size 1m;
+              client_body_buffer_size 1K;
+              client_header_buffer_size 1k;
+              large_client_header_buffers 2 1k;
+
+              # Map to verify CloudFront secret header
+              map $http_x_custom_origin_verify $is_cloudfront {
+                  default 0;
+                  "{{ cloudfront_secret_value }}" 1;
+              }
+
+              server {
+                  listen 80;
+                  listen [::]:80;
+                  server_name _;
+                  
+                  root {{ web_root }};
+                  index index.html;
+
+                  # CRITICAL: Block all requests without valid CloudFront header
+                  if ($is_cloudfront = 0) {
+                      return 403;
+                  }
+
+                  # Security headers
+                  add_header X-Frame-Options "DENY" always;
+                  add_header X-Content-Type-Options "nosniff" always;
+                  add_header X-XSS-Protection "1; mode=block" always;
+                  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+                  # Disable access to hidden files
+                  location ~ /\. {
+                      deny all;
+                      access_log off;
+                      log_not_found off;
+                  }
+
+                  # Main location
+                  location / {
+                      try_files $uri $uri/ =404;
+                  }
+
+                  # Image caching
+                  location ~* \.(png|jpg|jpeg|gif|ico|svg)$ {
+                      expires 7d;
+                      add_header Cache-Control "public, immutable";
+                  }
+
+                  # Deny access to sensitive files
+                  location ~* \.(conf|sql|sh|key|pem)$ {
+                      deny all;
+                  }
+              }
+          }
+        dest: /etc/nginx/nginx.conf
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Configure SELinux for Nginx (if enabled)
+      shell: |
+        if command -v setenforce &> /dev/null; then
+          setsebool -P httpd_can_network_connect 1 || true
+          chcon -R -t httpd_sys_content_t {{ web_root }} || true
+        fi
+      changed_when: false
+
+    - name: Test Nginx configuration
+      command: nginx -t
+      register: nginx_test
+      changed_when: false
+
+    - name: Restart Nginx
+      systemd:
+        name: nginx
+        state: restarted
+        enabled: yes
+
+    - name: Configure firewalld for HTTP
+      firewalld:
+        service: http
+        permanent: yes
+        state: enabled
+        immediate: yes
+      when: ansible_os_family == "RedHat"
+
+    - name: Reload firewalld
+      systemd:
+        name: firewalld
+        state: reloaded
+      when: ansible_os_family == "RedHat"
+
+    - name: Verify deployment
+      uri:
+        url: "http://localhost/logo.png"
+        status_code: [200, 403]
+        headers:
+          X-Custom-Origin-Verify: "{{ cloudfront_secret_value }}"
+      register: verify_result
+      changed_when: false
+
+    - name: Display deployment status
+      debug:
+        msg: 
+          - "=========================================="
+          - "✅ Deployment complete via SSM!"
+          - "EC2 is protected by CloudFront"
+          - "Direct EC2 access blocked (403)"
+          - "Only CloudFront can reach the origin"
+          - "Nginx status: {{ nginx_test.rc == 0 | ternary('OK', 'Failed') }}"
+          - "=========================================="

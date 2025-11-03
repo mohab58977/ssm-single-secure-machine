@@ -80,3 +80,15 @@ variable "enable_monitoring" {
   type        = bool
   default     = true
 }
+
+variable "github_repo" {
+  description = "GitHub repository in format 'owner/repo' (e.g., 'username/ssm-single-secure-machine')"
+  type        = string
+  default     = ""
+}
+
+variable "github_branch" {
+  description = "GitHub branch to fetch logo from"
+  type        = string
+  default     = "main"
+}

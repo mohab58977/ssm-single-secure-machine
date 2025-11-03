@@ -9,12 +9,13 @@ echo "Starting instance hardening for ${project_name}-${environment}"
 # Update all packages
 dnf update -y
 
-# Install security tools
+# Install security tools and SSM agent
 dnf install -y \
     fail2ban \
     aide \
     audit \
-    amazon-cloudwatch-agent
+    amazon-cloudwatch-agent \
+    amazon-ssm-agent
 
 # Configure automatic security updates
 dnf install -y dnf-automatic
@@ -162,6 +163,7 @@ systemctl start firewalld
 
 # Only allow SSH if needed (we prefer SSM)
 firewall-cmd --permanent --remove-service=ssh || true
+firewall-cmd --permanent --remove-service=http || true
 firewall-cmd --reload
 
 # Disable unnecessary services
@@ -213,7 +215,17 @@ chmod 700 /root
 chmod 600 /etc/crontab
 chmod 600 /etc/at.deny || true
 
+# Ensure SSM agent is running
+echo "Configuring SSM agent..."
+systemctl enable amazon-ssm-agent
+systemctl start amazon-ssm-agent
+
+# Verify SSM agent status
+SSM_STATUS=$(systemctl is-active amazon-ssm-agent)
+echo "SSM agent status: $SSM_STATUS"
+
 # Create a marker file to indicate hardening is complete
 echo "Instance hardening completed at $(date)" > /var/log/hardening-complete.log
+echo "SSM agent status: $SSM_STATUS" >> /var/log/hardening-complete.log
 
 echo "User data script completed successfully"

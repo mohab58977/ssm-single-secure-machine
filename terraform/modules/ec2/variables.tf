@@ -51,3 +51,34 @@ variable "enable_monitoring" {
   type        = bool
   default     = true
 }
+
+variable "cloudfront_secret_header_name" {
+  description = "CloudFront secret header name for origin verification"
+  type        = string
+  default     = ""
+}
+
+variable "cloudfront_secret_header_value" {
+  description = "CloudFront secret header value for origin verification"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "cloudfront_secret_arn" {
+  description = "ARN of Secrets Manager secret containing CloudFront header"
+  type        = string
+  default     = ""
+}
+
+variable "github_repo" {
+  description = "GitHub repository in format 'owner/repo' to fetch logo from"
+  type        = string
+  default     = ""
+}
+
+variable "github_branch" {
+  description = "GitHub branch to fetch logo from"
+  type        = string
+  default     = "main"
+}

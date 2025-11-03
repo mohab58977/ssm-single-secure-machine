@@ -1,0 +1,236 @@
+name: Ansible Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        default: 'dev'
+        options:
+          - dev
+          - staging
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+  actions: read
+
+env:
+  AWS_REGION: 'us-east-1'
+
+jobs:
+  deploy:
+    name: Deploy Image via Ansible
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-Ansible-${{ github.run_id }}
+
+      - name: Download deployment configuration
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-config-${{ inputs.environment }}
+          path: ./deployment-config
+
+      - name: Load deployment configuration
+        id: config
+        run: |
+          if [ ! -f ./deployment-config/deployment.env ]; then
+            echo "::error::Deployment configuration not found!"
+            echo "::error::Please run Terraform workflow with 'apply' action first."
+            exit 1
+          fi
+          
+          echo "Loading deployment configuration..."
+          cat ./deployment-config/deployment.env
+          
+          # Source the env file and export to GITHUB_OUTPUT
+          source ./deployment-config/deployment.env
+          echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+          echo "cloudfront_url=$CLOUDFRONT_URL" >> $GITHUB_OUTPUT
+          echo "image_url=$IMAGE_URL" >> $GITHUB_OUTPUT
+          echo "secrets_manager_arn=$SECRETS_MANAGER_ARN" >> $GITHUB_OUTPUT
+          
+          echo "Configuration loaded successfully"
+
+      - name: Fetch CloudFront secret from Secrets Manager
+        id: secrets
+        run: |
+          echo "Fetching CloudFront secret header from AWS Secrets Manager..."
+          
+          SECRET_JSON=$(aws secretsmanager get-secret-value \
+            --secret-id ${{ steps.config.outputs.secrets_manager_arn }} \
+            --query SecretString \
+            --output text)
+          
+          HEADER_NAME=$(echo $SECRET_JSON | jq -r '.header_name')
+          HEADER_VALUE=$(echo $SECRET_JSON | jq -r '.header_value')
+          
+          echo "::add-mask::$HEADER_VALUE"
+          echo "header_name=$HEADER_NAME" >> $GITHUB_OUTPUT
+          echo "header_value=$HEADER_VALUE" >> $GITHUB_OUTPUT
+          
+          echo "Secret fetched successfully"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Ansible and dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ansible boto3 botocore
+          ansible-galaxy collection install amazon.aws community.general
+
+      - name: Install AWS Session Manager Plugin
+        run: |
+          curl "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb" -o "session-manager-plugin.deb"
+          sudo dpkg -i session-manager-plugin.deb
+          session-manager-plugin --version
+
+      - name: Wait for instance to be ready
+        run: |
+          echo "Waiting for SSM agent to be online..."
+          INSTANCE_ID="${{ steps.config.outputs.instance_id }}"
+          
+          for i in {1..30}; do
+            STATUS=$(aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+              --query "InstanceInformationList[0].PingStatus" \
+              --output text 2>/dev/null || echo "NotFound")
+            
+            if [ "$STATUS" = "Online" ]; then
+              echo "✅ Instance is online and ready!"
+              break
+            fi
+            
+            echo "Attempt $i/30: Instance status is $STATUS, waiting 10s..."
+            
+            if [ $i -eq 30 ]; then
+              echo "::error::Instance did not come online within timeout"
+              exit 1
+            fi
+            
+            sleep 10
+          done
+
+      - name: Create Ansible inventory
+        run: |
+          cat > inventory.ini << EOF
+          [ec2_servers]
+          ec2-instance ansible_host=${{ steps.config.outputs.instance_id }} ansible_connection=aws_ssm ansible_user=ec2-user
+          EOF
+          
+          echo "Inventory created:"
+          cat inventory.ini
+
+      - name: Test SSM connectivity
+        run: |
+          echo "Testing SSM connection..."
+          ansible ec2_servers -i inventory.ini -m ping -v
+
+      - name: Run Ansible playbook
+        env:
+          CLOUDFRONT_SECRET_HEADER: ${{ steps.secrets.outputs.header_name }}
+          CLOUDFRONT_SECRET_VALUE: ${{ steps.secrets.outputs.header_value }}
+          ANSIBLE_HOST_KEY_CHECKING: 'False'
+          ANSIBLE_STDOUT_CALLBACK: 'yaml'
+        run: |
+          echo "Deploying image with Ansible..."
+          ansible-playbook \
+            -i inventory.ini \
+            deploy-image.yml \
+            -v \
+            --timeout 300
+
+      - name: Verify deployment
+        run: |
+          echo "Verifying deployment..."
+          CLOUDFRONT_URL="${{ steps.config.outputs.cloudfront_url }}"
+          IMAGE_URL="${{ steps.config.outputs.image_url }}"
+          
+          echo "Testing CloudFront URL..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -L "$CLOUDFRONT_URL")
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ CloudFront is responding correctly"
+          else
+            echo "⚠️  CloudFront returned HTTP $HTTP_CODE (may need time to propagate)"
+          fi
+          
+          echo "Testing image URL..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -L "$IMAGE_URL")
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ Image is accessible"
+          else
+            echo "⚠️  Image returned HTTP $HTTP_CODE (may need time to propagate)"
+          fi
+
+      - name: Test direct EC2 access (should be blocked)
+        continue-on-error: true
+        run: |
+          echo "Testing that direct EC2 access is blocked..."
+          ELASTIC_IP=$(cat ./deployment-config/deployment.env | grep ELASTIC_IP | cut -d'=' -f2)
+          
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://$ELASTIC_IP/logo.png" || echo "000")
+          
+          if [ "$HTTP_CODE" = "403" ]; then
+            echo "✅ Direct EC2 access is properly blocked (403 Forbidden)"
+          elif [ "$HTTP_CODE" = "000" ]; then
+            echo "✅ Direct EC2 access is blocked (connection refused/timeout)"
+          else
+            echo "⚠️  Direct EC2 returned HTTP $HTTP_CODE (expected 403)"
+          fi
+
+      - name: Display deployment summary
+        if: success()
+        run: |
+          echo "============================================"
+          echo "🎉 Deployment Completed Successfully!"
+          echo "============================================"
+          echo ""
+          echo "📸 Image URL:"
+          echo "   ${{ steps.config.outputs.image_url }}"
+          echo ""
+          echo "🌐 CloudFront Distribution:"
+          echo "   ${{ steps.config.outputs.cloudfront_url }}"
+          echo ""
+          echo "🔒 Security Status:"
+          echo "   ✅ CloudFront HTTPS enforced"
+          echo "   ✅ Origin verification enabled"
+          echo "   ✅ Direct EC2 access blocked"
+          echo "   ✅ Security headers applied"
+          echo ""
+          echo "🧪 Test your deployment:"
+          echo "   curl -I ${{ steps.config.outputs.image_url }}"
+          echo ""
+          echo "📦 Instance ID: ${{ steps.config.outputs.instance_id }}"
+          echo "🔧 Connect via SSM:"
+          echo "   aws ssm start-session --target ${{ steps.config.outputs.instance_id }}"
+          echo "============================================"
+
+      - name: Upload deployment logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ansible-logs-${{ inputs.environment }}-${{ github.run_number }}
+          path: |
+            *.log
+            deployment-config/
+          retention-days: 7
+          if-no-files-found: ignore

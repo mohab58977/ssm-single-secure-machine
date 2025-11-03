@@ -6,6 +6,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.82"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
   
   backend "s3" {
@@ -86,4 +90,35 @@ module "ec2" {
   ebs_kms_key_id        = var.ebs_kms_key_id
   allowed_ssh_cidrs     = var.allowed_ssh_cidrs
   enable_monitoring     = var.enable_monitoring
+  
+  # CloudFront security
+  cloudfront_secret_header_name  = module.cloudfront.secret_header_name
+  cloudfront_secret_header_value = module.cloudfront.secret_header_value
+  cloudfront_secret_arn          = module.cloudfront.secrets_manager_arn
+  
+  # GitHub repository for logo
+  github_repo   = var.github_repo
+  github_branch = var.github_branch
+}
+
+# Elastic IP for EC2 (needed for CloudFront origin)
+resource "aws_eip" "ec2" {
+  domain   = "vpc"
+  instance = module.ec2.instance_id
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-eip"
+  }
+
+  depends_on = [module.ec2]
+}
+
+# CloudFront Distribution Module
+module "cloudfront" {
+  source = "./modules/cloudfront"
+  
+  project_name   = var.project_name
+  environment    = var.environment
+  ec2_public_dns = aws_eip.ec2.public_dns
+  enable_logging = false  # Set to true if you want access logs (requires S3 bucket)
 }

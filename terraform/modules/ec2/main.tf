@@ -31,6 +31,15 @@ resource "aws_security_group" "instance" {
     cidr_blocks = ["0.0.0.0/0"]
   }
   
+  # HTTP ingress from CloudFront (CloudFront handles HTTPS)
+  ingress {
+    description = "HTTP from CloudFront"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]  # CloudFront IPs are dynamic, verified via secret header
+  }
+  
   # Optional SSH access (only if CIDRs provided - for emergency use)
   dynamic "ingress" {
     for_each = length(var.allowed_ssh_cidrs) > 0 ? [1] : []
@@ -91,7 +100,7 @@ resource "aws_iam_role_policy_attachment" "cloudwatch_agent" {
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 }
 
-# Custom IAM policy for additional security logging
+# Custom IAM policy for additional security logging and secrets access
 resource "aws_iam_role_policy" "instance_policy" {
   name_prefix = "${var.project_name}-${var.environment}-instance-"
   role        = aws_iam_role.instance.id
@@ -117,6 +126,13 @@ resource "aws_iam_role_policy" "instance_policy" {
           "logs:DescribeLogStreams"
         ]
         Resource = "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/ec2/${var.project_name}-${var.environment}:*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = var.cloudfront_secret_arn != "" ? var.cloudfront_secret_arn : "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:*"
       }
     ]
   })
@@ -216,11 +232,14 @@ resource "aws_instance" "main" {
     }
   }
   
-  # User data for initial hardening
+  # User data for initial hardening and web server setup
   user_data = base64encode(templatefile("${path.module}/user_data.sh", {
-    project_name = var.project_name
-    environment  = var.environment
-    region       = data.aws_region.current.name
+    project_name          = var.project_name
+    environment           = var.environment
+    region                = data.aws_region.current.name
+    cloudfront_secret_arn = var.cloudfront_secret_arn
+    github_repo           = var.github_repo
+    github_branch         = var.github_branch
   }))
   
   # Prevent accidental termination in production

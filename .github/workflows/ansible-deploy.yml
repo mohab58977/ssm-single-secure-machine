@@ -12,6 +12,30 @@ on:
           - dev
           - staging
           - prod
+      instance_id:
+        description: 'EC2 Instance ID (optional if providing custom inventory)'
+        required: false
+        type: string
+      cloudfront_url:
+        description: 'CloudFront URL (optional)'
+        required: false
+        type: string
+      image_url:
+        description: 'Image URL (optional)'
+        required: false
+        type: string
+      secrets_manager_arn:
+        description: 'Secrets Manager ARN for CloudFront header (optional)'
+        required: false
+        type: string
+      elastic_ip:
+        description: 'EC2 Elastic IP for direct access test (optional)'
+        required: false
+        type: string
+      ansible_inventory:
+        description: 'Raw Ansible inventory content (optional, overrides generated)'
+        required: false
+        type: string
 
 permissions:
   id-token: write
@@ -38,32 +62,24 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: GitHubActions-Ansible-${{ github.run_id }}
 
-      - name: Download deployment configuration
-        uses: actions/download-artifact@v4
-        with:
-          name: deployment-config-${{ inputs.environment }}
-          path: ./deployment-config
 
-      - name: Load deployment configuration
+      - name: Load inputs
         id: config
         run: |
-          if [ ! -f ./deployment-config/deployment.env ]; then
-            echo "::error::Deployment configuration not found!"
-            echo "::error::Please run Terraform workflow with 'apply' action first."
-            exit 1
-          fi
-          
-          echo "Loading deployment configuration..."
-          cat ./deployment-config/deployment.env
-          
-          # Source the env file and export to GITHUB_OUTPUT
-          source ./deployment-config/deployment.env
+          echo "Loading inputs..."
+          INSTANCE_ID="${{ inputs.instance_id }}"
+          CLOUDFRONT_URL="${{ inputs.cloudfront_url }}"
+          IMAGE_URL="${{ inputs.image_url }}"
+          SECRETS_MANAGER_ARN="${{ inputs.secrets_manager_arn }}"
+          ELASTIC_IP="${{ inputs.elastic_ip }}"
+
           echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
           echo "cloudfront_url=$CLOUDFRONT_URL" >> $GITHUB_OUTPUT
           echo "image_url=$IMAGE_URL" >> $GITHUB_OUTPUT
           echo "secrets_manager_arn=$SECRETS_MANAGER_ARN" >> $GITHUB_OUTPUT
-          
-          echo "Configuration loaded successfully"
+          echo "elastic_ip=$ELASTIC_IP" >> $GITHUB_OUTPUT
+
+          echo "Inputs loaded"
 
       - name: Prepare CloudFront secret
         id: secrets
@@ -106,6 +122,7 @@ jobs:
           session-manager-plugin --version
 
       - name: Wait for instance to be ready
+        if: ${{ inputs.instance_id != '' }}
         run: |
           echo "Waiting for SSM agent to be online..."
           INSTANCE_ID="${{ steps.config.outputs.instance_id }}"
@@ -133,10 +150,19 @@ jobs:
 
       - name: Create Ansible inventory
         run: |
-          cat > inventory.ini << EOF
-          [ec2_servers]
-          ec2-instance ansible_host=${{ steps.config.outputs.instance_id }} ansible_connection=aws_ssm ansible_user=ec2-user
-          EOF
+          if [ -n "${{ inputs.ansible_inventory }}" ]; then
+            echo "Using provided inventory content"
+            printf "%s\n" "${{ inputs.ansible_inventory }}" > inventory.ini
+          elif [ -n "${{ steps.config.outputs.instance_id }}" ]; then
+            echo "Generating SSM inventory using instance_id"
+            cat > inventory.ini << EOF
+            [ec2_servers]
+            ec2-instance ansible_host=${{ steps.config.outputs.instance_id }} ansible_connection=aws_ssm ansible_user=ec2-user
+            EOF
+          else
+            echo "::error::Provide either 'instance_id' or 'ansible_inventory' input"
+            exit 1
+          fi
           
           echo "Inventory created:"
           cat inventory.ini
@@ -165,7 +191,7 @@ jobs:
           echo "Verifying deployment..."
           CLOUDFRONT_URL="${{ steps.config.outputs.cloudfront_url }}"
           IMAGE_URL="${{ steps.config.outputs.image_url }}"
-
+          
           if [ -n "$CLOUDFRONT_URL" ]; then
             echo "Testing CloudFront URL..."
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -L "$CLOUDFRONT_URL" || echo 000)
@@ -191,13 +217,12 @@ jobs:
           fi
 
       - name: Test direct EC2 access (should be blocked)
+        if: ${{ inputs.elastic_ip != '' }}
         continue-on-error: true
         run: |
           echo "Testing that direct EC2 access is blocked..."
-          ELASTIC_IP=$(cat ./deployment-config/deployment.env | grep ELASTIC_IP | cut -d'=' -f2)
-          
+          ELASTIC_IP="${{ steps.config.outputs.elastic_ip }}"
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://$ELASTIC_IP/logo.png" || echo "000")
-          
           if [ "$HTTP_CODE" = "403" ]; then
             echo "✅ Direct EC2 access is properly blocked (403 Forbidden)"
           elif [ "$HTTP_CODE" = "000" ]; then

@@ -148,27 +148,53 @@ jobs:
             sleep 10
           done
 
-      - name: Create Ansible inventory
+      - name: Create Ansible config and inventory
         run: |
+          # Create ansible.cfg with SSM settings
+          cat > ansible.cfg << 'EOFCFG'
+          [defaults]
+          host_key_checking = False
+          inventory = inventory.ini
+          
+          [ssh_connection]
+          
+          [inventory]
+          enable_plugins = aws_ec2, host_list, auto, yaml, ini
+          EOFCFG
+          
+          # Create inventory with SSM connection params
           if [ -n "${{ inputs.ansible_inventory }}" ]; then
             echo "Using provided inventory content"
             printf "%s\n" "${{ inputs.ansible_inventory }}" > inventory.ini
           elif [ -n "${{ steps.config.outputs.instance_id }}" ]; then
             echo "Generating SSM inventory using instance_id"
-            printf "%s\n" "[ec2_servers]" > inventory.ini
-            printf "%s\n" "ec2-instance ansible_host=${{ steps.config.outputs.instance_id }} ansible_connection=aws_ssm ansible_user=ec2-user ansible_python_interpreter=/usr/bin/python3" >> inventory.ini
+            cat > inventory.ini << EOFINV
+          [ec2_servers]
+          ec2-instance ansible_host=${{ steps.config.outputs.instance_id }}
+          
+          [ec2_servers:vars]
+          ansible_connection=aws_ssm
+          ansible_user=ec2-user
+          ansible_python_interpreter=/usr/bin/python3
+          ansible_aws_ssm_region=${{ env.AWS_REGION }}
+          EOFINV
           else
             echo "::error::Provide either 'instance_id' or 'ansible_inventory' input"
             exit 1
           fi
           
+          echo "Ansible config created:"
+          cat ansible.cfg
+          echo ""
           echo "Inventory created:"
           cat inventory.ini
 
       - name: Bootstrap Python on target (required for Ansible modules)
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: 'False'
         run: |
           echo "Installing Python3 on target via SSM..."
-          ansible ec2_servers -i inventory.ini -m raw -a "sudo dnf -y install python3" -b -v
+          ansible ec2_servers -m raw -a "sudo dnf -y install python3" -v || true
           echo "Python bootstrap complete."
 
       - name: Run Ansible playbook

@@ -110,19 +110,18 @@ jobs:
         if: inputs.action == 'apply'
         id: outputs
         run: |
-          # Extract outputs and save to file
+          # Extract outputs and save to file (robust when some outputs are missing)
           mkdir -p ../deployment-config
-          
           echo "Extracting Terraform outputs..."
           terraform output -json > ../deployment-config/terraform-outputs.json
-          
-          # Extract specific values for easy access
-          INSTANCE_ID=$(terraform output -raw instance_id)
-          CLOUDFRONT_URL=$(terraform output -raw cloudfront_url)
-          IMAGE_URL=$(terraform output -raw image_url)
-          ELASTIC_IP=$(terraform output -raw elastic_ip)
-          SECRET_ARN=$(terraform output -raw secrets_manager_arn)
-          
+
+          # Parse from JSON safely (missing keys -> empty)
+          INSTANCE_ID=$(jq -r '.instance_id.value // empty' ../deployment-config/terraform-outputs.json)
+          CLOUDFRONT_URL=$(jq -r '.cloudfront_url.value // empty' ../deployment-config/terraform-outputs.json)
+          IMAGE_URL=$(jq -r '.image_url.value // empty' ../deployment-config/terraform-outputs.json)
+          ELASTIC_IP=$(jq -r '.elastic_ip.value // empty' ../deployment-config/terraform-outputs.json)
+          SECRET_ARN=$(jq -r '.secrets_manager_arn.value // empty' ../deployment-config/terraform-outputs.json)
+
           # Create deployment config file
           cat > ../deployment-config/deployment.env << EOF
           INSTANCE_ID=$INSTANCE_ID
@@ -134,10 +133,10 @@ jobs:
           AWS_REGION=${{ env.AWS_REGION }}
           DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           EOF
-          
+
           echo "Deployment configuration saved"
           cat ../deployment-config/deployment.env
-          
+
           # Set outputs for workflow
           echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
           echo "cloudfront_url=$CLOUDFRONT_URL" >> $GITHUB_OUTPUT

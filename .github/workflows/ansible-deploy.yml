@@ -184,7 +184,7 @@ jobs:
             printf "%s\n" "${{ inputs.ansible_inventory }}" > inventory.ini
           elif [ -n "${{ steps.config.outputs.instance_id }}" ]; then
             echo "Generating SSM inventory using instance_id"
-            cat > inventory.ini << 'EOFINV'
+            cat > inventory.ini << EOFINV
 [ec2_servers]
 ec2-instance
 

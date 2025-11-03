@@ -148,6 +148,21 @@ jobs:
             sleep 10
           done
 
+      - name: Verify AWS SSM connectivity
+        run: |
+          echo "Testing direct SSM connection..."
+          aws ssm describe-instance-information \
+            --filters "Key=InstanceIds,Values=${{ steps.config.outputs.instance_id }}" \
+            --query "InstanceInformationList[0]" || echo "SSM info retrieval failed"
+          
+          echo "Testing SSM command execution..."
+          aws ssm send-command \
+            --instance-ids "${{ steps.config.outputs.instance_id }}" \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=["echo test"]' \
+            --query "Command.CommandId" \
+            --output text || echo "SSM send-command failed"
+
       - name: Create Ansible config and inventory
         run: |
           # Create ansible.cfg with SSM settings
@@ -155,6 +170,7 @@ jobs:
           [defaults]
           host_key_checking = False
           inventory = inventory.ini
+          timeout = 60
           
           [ssh_connection]
           
@@ -168,16 +184,16 @@ jobs:
             printf "%s\n" "${{ inputs.ansible_inventory }}" > inventory.ini
           elif [ -n "${{ steps.config.outputs.instance_id }}" ]; then
             echo "Generating SSM inventory using instance_id"
-            cat > inventory.ini << EOFINV
-          [ec2_servers]
-          ec2-instance ansible_host=${{ steps.config.outputs.instance_id }}
-          
-          [ec2_servers:vars]
-          ansible_connection=aws_ssm
-          ansible_user=ec2-user
-          ansible_python_interpreter=/usr/bin/python3
-          ansible_aws_ssm_region=${{ env.AWS_REGION }}
-          EOFINV
+            cat > inventory.ini << 'EOFINV'
+[ec2_servers]
+ec2-instance
+
+[ec2_servers:vars]
+ansible_host=${{ steps.config.outputs.instance_id }}
+ansible_connection=aws_ssm
+ansible_aws_ssm_bucket_name=
+ansible_aws_ssm_region=${{ env.AWS_REGION }}
+EOFINV
           else
             echo "::error::Provide either 'instance_id' or 'ansible_inventory' input"
             exit 1
@@ -189,13 +205,16 @@ jobs:
           echo "Inventory created:"
           cat inventory.ini
 
-      - name: Bootstrap Python on target (required for Ansible modules)
-        env:
-          ANSIBLE_HOST_KEY_CHECKING: 'False'
+      - name: Test direct SSM command
         run: |
-          echo "Installing Python3 on target via SSM..."
-          ansible ec2_servers -m raw -a "sudo dnf -y install python3" -v || true
-          echo "Python bootstrap complete."
+          echo "Testing direct SSM shell command..."
+          aws ssm start-session --target ${{ steps.config.outputs.instance_id }} \
+            --document-name AWS-StartNonInteractiveCommand \
+            --parameters 'command=["echo SSM works"]' || echo "Direct SSM failed"
+
+      - name: Skip Python bootstrap (already in AL2023)
+        run: |
+          echo "Amazon Linux 2023 includes Python3 by default; skipping bootstrap."
 
       - name: Run Ansible playbook
         env:

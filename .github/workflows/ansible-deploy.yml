@@ -16,6 +16,7 @@ on:
         description: 'EC2 Instance ID (optional if providing custom inventory)'
         required: false
         type: string
+        default: 'i-0d80cf0c8f79135c0'
       cloudfront_url:
         description: 'CloudFront URL (optional)'
         required: false
@@ -154,10 +155,8 @@ jobs:
             printf "%s\n" "${{ inputs.ansible_inventory }}" > inventory.ini
           elif [ -n "${{ steps.config.outputs.instance_id }}" ]; then
             echo "Generating SSM inventory using instance_id"
-            cat > inventory.ini << EOF
-            [ec2_servers]
-            ec2-instance ansible_host=${{ steps.config.outputs.instance_id }} ansible_connection=aws_ssm ansible_user=ec2-user
-            EOF
+            printf "%s\n" "[ec2_servers]" > inventory.ini
+            printf "%s\n" "ec2-instance ansible_host=${{ steps.config.outputs.instance_id }} ansible_connection=aws_ssm ansible_user=ec2-user" >> inventory.ini
           else
             echo "::error::Provide either 'instance_id' or 'ansible_inventory' input"
             exit 1

@@ -4,41 +4,44 @@ resource "aws_security_group" "instance" {
   description = "Security group for EC2 instance"
   vpc_id      = var.vpc_id
   
-  # Egress: Allow HTTPS for SSM and package updates
+  # Egress: Allow HTTPS to VPC endpoints for SSM
   egress {
-    description = "HTTPS to VPC endpoints and internet"
+    description = "HTTPS to VPC endpoints"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.vpc_cidr]
   }
   
-  # Egress: Allow HTTP for package updates
+  # Egress: Allow HTTPS to internet for package updates (NAT Gateway)
+  #tfsec:ignore:aws-ec2-no-public-egress-sgr
   egress {
-    description = "HTTP for package updates"
+    description = "HTTPS for package updates via NAT"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]  # Required for dnf updates, routed via NAT Gateway
+  }
+  
+  # Egress: Allow HTTP to internet for package updates (NAT Gateway)
+  #tfsec:ignore:aws-ec2-no-public-egress-sgr
+  egress {
+    description = "HTTP for package updates via NAT"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["0.0.0.0/0"]  # Required for dnf updates, routed via NAT Gateway
   }
   
-  # Egress: Allow DNS
+  # Egress: Allow DNS to VPC DNS resolver
   egress {
-    description = "DNS queries"
+    description = "DNS queries to VPC resolver"
     from_port   = 53
     to_port     = 53
     protocol    = "udp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.vpc_cidr]
   }
   
-  # HTTP ingress from CloudFront (CloudFront handles HTTPS)
-  ingress {
-    description = "HTTP from CloudFront"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]  # CloudFront IPs are dynamic, verified via secret header
-  }
   
   # Optional SSH access (only if CIDRs provided - for emergency use)
   dynamic "ingress" {

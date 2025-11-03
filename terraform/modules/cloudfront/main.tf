@@ -4,11 +4,57 @@ resource "random_password" "cloudfront_secret" {
   special = true
 }
 
+# KMS Key for Secrets Manager encryption
+resource "aws_kms_key" "secrets" {
+  description             = "KMS key for Secrets Manager encryption"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "Enable IAM User Permissions"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow Secrets Manager"
+        Effect = "Allow"
+        Principal = {
+          Service = "secretsmanager.amazonaws.com"
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey",
+          "kms:CreateGrant"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-secrets-kms"
+  }
+}
+
+resource "aws_kms_alias" "secrets" {
+  name          = "alias/${var.project_name}-${var.environment}-secrets"
+  target_key_id = aws_kms_key.secrets.key_id
+}
+
 # Store secret in AWS Secrets Manager
+#checkov:skip=CKV2_AWS_57:Automatic rotation not needed - secret is randomly generated and only used internally
 resource "aws_secretsmanager_secret" "cloudfront_secret" {
   name_prefix             = "${var.project_name}-${var.environment}-cf-secret-"
   description             = "Secret header for CloudFront to EC2 communication"
   recovery_window_in_days = 7
+  kms_key_id              = aws_kms_key.secrets.arn
 
   tags = {
     Name = "${var.project_name}-${var.environment}-cloudfront-secret"
@@ -29,6 +75,10 @@ resource "aws_cloudfront_origin_access_identity" "main" {
 }
 
 # CloudFront Distribution
+#checkov:skip=CKV_AWS_310:Origin failover requires multiple origins/instances - not needed for single instance setup
+#checkov:skip=CKV_AWS_68:WAF is optional and adds cost - can be enabled via waf_web_acl_id variable
+#checkov:skip=CKV2_AWS_47:WAF with Log4j rules requires WAF to be enabled first
+#checkov:skip=CKV2_AWS_42:Custom SSL certificate requires domain ownership - using CloudFront default for demo
 resource "aws_cloudfront_distribution" "main" {
   enabled             = true
   is_ipv6_enabled     = true
@@ -105,7 +155,8 @@ resource "aws_cloudfront_distribution" "main" {
 
   restrictions {
     geo_restriction {
-      restriction_type = "none"
+      restriction_type = length(var.geo_restriction_locations) > 0 ? "whitelist" : "none"
+      locations        = length(var.geo_restriction_locations) > 0 ? var.geo_restriction_locations : []
     }
   }
 
@@ -113,6 +164,9 @@ resource "aws_cloudfront_distribution" "main" {
     cloudfront_default_certificate = true
     minimum_protocol_version       = "TLSv1.2_2021"
   }
+
+  # WAF Web ACL Association
+  web_acl_id = var.waf_web_acl_id != "" ? var.waf_web_acl_id : null
 
   # Logging configuration (optional, uses S3)
   dynamic "logging_config" {
@@ -215,6 +269,9 @@ resource "aws_cloudfront_response_headers_policy" "security_headers" {
     origin_override            = false
   }
 }
+
+# Data sources
+data "aws_caller_identity" "current" {}
 
 # CloudWatch alarm for high error rate
 resource "aws_cloudwatch_metric_alarm" "cloudfront_error_rate" {

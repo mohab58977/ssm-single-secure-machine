@@ -13,6 +13,11 @@ variable "vpc_id" {
   type        = string
 }
 
+variable "vpc_cidr" {
+  description = "VPC CIDR block for security group rules"
+  type        = string
+}
+
 variable "private_subnet_id" {
   description = "Private subnet ID for EC2 instance"
   type        = string

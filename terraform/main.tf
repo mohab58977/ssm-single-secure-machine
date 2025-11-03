@@ -83,6 +83,7 @@ module "ec2" {
   project_name          = var.project_name
   environment           = var.environment
   vpc_id                = module.vpc.vpc_id
+  vpc_cidr              = var.vpc_cidr
   private_subnet_id     = module.vpc.private_subnet_ids[0]
   instance_type         = var.instance_type
   ami_id                = data.aws_ami.ubuntu.id

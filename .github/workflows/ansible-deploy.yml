@@ -184,16 +184,16 @@ jobs:
             printf "%s\n" "${{ inputs.ansible_inventory }}" > inventory.ini
           elif [ -n "${{ steps.config.outputs.instance_id }}" ]; then
             echo "Generating SSM inventory using instance_id"
-            cat > inventory.ini << EOFINV
-[ec2_servers]
-ec2-instance
-
-[ec2_servers:vars]
-ansible_host=${{ steps.config.outputs.instance_id }}
-ansible_connection=aws_ssm
-ansible_aws_ssm_bucket_name=
-ansible_aws_ssm_region=${{ env.AWS_REGION }}
-EOFINV
+            cat > inventory.ini <<EOFINV
+          [ec2_servers]
+          ec2-instance
+          
+          [ec2_servers:vars]
+          ansible_host=${{ steps.config.outputs.instance_id }}
+          ansible_connection=aws_ssm
+          ansible_aws_ssm_bucket_name=
+          ansible_aws_ssm_region=${{ env.AWS_REGION }}
+          EOFINV
           else
             echo "::error::Provide either 'instance_id' or 'ansible_inventory' input"
             exit 1

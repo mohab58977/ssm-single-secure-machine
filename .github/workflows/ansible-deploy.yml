@@ -310,14 +310,13 @@ jobs:
           
           chmod +x deploy.sh
           
-          # Upload and execute script via SSM
+          # Send script content directly via SSM
+          SCRIPT_CONTENT=$(cat deploy.sh | base64)
+          
           aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters "commands=[
-              'curl -o /tmp/deploy.sh https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/deploy.sh || cat > /tmp/deploy.sh',
-              'bash /tmp/deploy.sh'
-            ]" \
+            --parameters commands="echo $SCRIPT_CONTENT | base64 -d > /tmp/deploy.sh && chmod +x /tmp/deploy.sh && bash /tmp/deploy.sh" \
             --output text \
             --query "Command.CommandId" > command_id.txt
           

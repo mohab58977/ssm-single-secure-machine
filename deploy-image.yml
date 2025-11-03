@@ -2,18 +2,14 @@
 - name: Deploy application via SSM to Amazon Linux 2023
   hosts: ec2_servers
   become: yes
+  gather_facts: no
   vars:
     local_image_path: "{{ playbook_dir }}/logo.png"
     web_root: "/var/www/html"
     cloudfront_secret_header: "{{ lookup('env', 'CLOUDFRONT_SECRET_HEADER') }}"
-    cloudfront_secret_value: "{{ lookup('env', 'CLOUDFRONT_SECRET_VALUE') }}"
+    cloudfront_secret_value: "{{ lookup('env', 'CLOUDFRONT_SECRET_VALUE') }}
     
   tasks:
-    - name: Gather OS facts
-      setup:
-        gather_subset:
-          - distribution
-
     - name: Install required packages (Amazon Linux)
       dnf:
         name:
@@ -21,7 +17,6 @@
           - jq
         state: present
         update_cache: yes
-      when: ansible_os_family == "RedHat"
 
     - name: Create web root directory
       file:
@@ -120,12 +115,6 @@
               client_header_buffer_size 1k;
               large_client_header_buffers 2 1k;
 
-              # Map to verify CloudFront secret header
-              map $http_x_custom_origin_verify $is_cloudfront {
-                  default 0;
-                  "{{ cloudfront_secret_value }}" 1;
-              }
-
               server {
                   listen 80;
                   listen [::]:80;
@@ -133,11 +122,6 @@
                   
                   root {{ web_root }};
                   index index.html;
-
-                  # CRITICAL: Block all requests without valid CloudFront header
-                  if ($is_cloudfront = 0) {
-                      return 403;
-                  }
 
                   # Security headers
                   add_header X-Frame-Options "DENY" always;

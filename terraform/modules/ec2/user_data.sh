@@ -17,6 +17,12 @@ dnf install -y \
     amazon-cloudwatch-agent \
     amazon-ssm-agent
 
+# Ensure SSM agent is enabled and started
+echo "Ensuring SSM agent is running..."
+systemctl enable amazon-ssm-agent
+systemctl start amazon-ssm-agent
+systemctl status amazon-ssm-agent --no-pager
+
 # Configure automatic security updates
 dnf install -y dnf-automatic
 sed -i 's/apply_updates = no/apply_updates = yes/' /etc/dnf/automatic.conf

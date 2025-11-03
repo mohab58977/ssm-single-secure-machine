@@ -1,4 +1,4 @@
-name: Ansible Deployment
+name: SSM Deployment
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ on:
         description: 'EC2 Instance ID (optional if providing custom inventory)'
         required: false
         type: string
-        default: 'i-0d80cf0c8f79135c0'
+        default: 'i-0f67b8c459e2cd5f9'
       cloudfront_url:
         description: 'CloudFront URL (optional)'
         required: false
@@ -48,7 +48,7 @@ env:
 
 jobs:
   deploy:
-    name: Deploy Image via Ansible
+    name: Deploy via SSM
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     
@@ -104,16 +104,6 @@ jobs:
             echo "header_value=" >> $GITHUB_OUTPUT
           fi
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Ansible and dependencies
-        run: |
-          pip install --upgrade pip
-          pip install ansible boto3 botocore
-          ansible-galaxy collection install amazon.aws community.general
 
       - name: Install AWS Session Manager Plugin
         run: |
@@ -148,72 +138,7 @@ jobs:
             sleep 10
           done
 
-      - name: Verify AWS SSM connectivity
-        run: |
-          echo "Testing direct SSM connection..."
-          aws ssm describe-instance-information \
-            --filters "Key=InstanceIds,Values=${{ steps.config.outputs.instance_id }}" \
-            --query "InstanceInformationList[0]" || echo "SSM info retrieval failed"
-          
-          echo "Testing SSM command execution..."
-          aws ssm send-command \
-            --instance-ids "${{ steps.config.outputs.instance_id }}" \
-            --document-name "AWS-RunShellScript" \
-            --parameters 'commands=["echo test"]' \
-            --query "Command.CommandId" \
-            --output text || echo "SSM send-command failed"
 
-      - name: Create Ansible config and inventory
-        run: |
-          # Create ansible.cfg with SSM settings
-          cat > ansible.cfg << 'EOFCFG'
-          [defaults]
-          host_key_checking = False
-          inventory = inventory.ini
-          timeout = 60
-          
-          [ssh_connection]
-          
-          [inventory]
-          enable_plugins = aws_ec2, host_list, auto, yaml, ini
-          EOFCFG
-          
-          # Create inventory with SSM connection params
-          if [ -n "${{ inputs.ansible_inventory }}" ]; then
-            echo "Using provided inventory content"
-            printf "%s\n" "${{ inputs.ansible_inventory }}" > inventory.ini
-          elif [ -n "${{ steps.config.outputs.instance_id }}" ]; then
-            echo "Generating SSM inventory using instance_id"
-            cat > inventory.ini <<EOFINV
-          [ec2_servers]
-          ec2-instance
-          
-          [ec2_servers:vars]
-          ansible_host=${{ steps.config.outputs.instance_id }}
-          ansible_connection=aws_ssm
-          ansible_aws_ssm_region=${{ env.AWS_REGION }}
-          EOFINV
-          else
-            echo "::error::Provide either 'instance_id' or 'ansible_inventory' input"
-            exit 1
-          fi
-          
-          echo "Ansible config created:"
-          cat ansible.cfg
-          echo ""
-          echo "Inventory created:"
-          cat inventory.ini
-
-      - name: Test direct SSM command
-        run: |
-          echo "Testing direct SSM shell command..."
-          aws ssm start-session --target ${{ steps.config.outputs.instance_id }} \
-            --document-name AWS-StartNonInteractiveCommand \
-            --parameters 'command=["echo SSM works"]' || echo "Direct SSM failed"
-
-      - name: Skip Python bootstrap (already in AL2023)
-        run: |
-          echo "Amazon Linux 2023 includes Python3 by default; skipping bootstrap."
 
       - name: Deploy Nginx configuration via SSM
         run: |

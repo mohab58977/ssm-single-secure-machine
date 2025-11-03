@@ -2,9 +2,10 @@
 # Copy this to terraform.tfvars and customize for your environment
 
 # Project configuration
-project_name = "ssm-secure-machine"
-environment  = "dev"
-aws_region   = "us-east-1"
+project_name      = "ssm-secure-machine"
+environment       = "dev"
+aws_region        = "us-east-1"
+enable_cloudfront = false
 
 # Network configuration
 vpc_cidr = "10.0.0.0/16"

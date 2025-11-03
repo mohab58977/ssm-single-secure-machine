@@ -50,40 +50,40 @@ output "ssm_connection_command" {
 
 output "ami_id" {
   description = "AMI ID used for the instance"
-  value       = data.aws_ami.ubuntu.id
+  value       = data.aws_ami.al2023.id
 }
 
 output "ami_name" {
   description = "AMI name"
-  value       = data.aws_ami.ubuntu.name
+  value       = data.aws_ami.al2023.name
 }
 
 output "elastic_ip" {
   description = "Elastic IP address of the EC2 instance"
-  value       = aws_eip.ec2.public_ip
+  value       = length(aws_eip.ec2) > 0 ? aws_eip.ec2[0].public_ip : null
 }
 
 output "ec2_public_dns" {
   description = "Public DNS of the EC2 instance"
-  value       = aws_eip.ec2.public_dns
+  value       = length(aws_eip.ec2) > 0 ? aws_eip.ec2[0].public_dns : null
 }
 
 output "cloudfront_url" {
   description = "CloudFront distribution URL (HTTPS)"
-  value       = module.cloudfront.cloudfront_url
+  value       = var.enable_cloudfront ? module.cloudfront[0].cloudfront_url : null
 }
 
 output "cloudfront_domain" {
   description = "CloudFront domain name"
-  value       = module.cloudfront.cloudfront_domain_name
+  value       = var.enable_cloudfront ? module.cloudfront[0].cloudfront_domain_name : null
 }
 
 output "image_url" {
   description = "Public URL to access the hosted image"
-  value       = "${module.cloudfront.cloudfront_url}/logo.png"
+  value       = var.enable_cloudfront ? "${module.cloudfront[0].cloudfront_url}/logo.png" : null
 }
 
 output "secrets_manager_arn" {
   description = "ARN of Secrets Manager secret for CloudFront verification"
-  value       = module.cloudfront.secrets_manager_arn
+  value       = var.enable_cloudfront ? module.cloudfront[0].secrets_manager_arn : null
 }

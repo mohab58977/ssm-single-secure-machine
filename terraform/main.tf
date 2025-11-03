@@ -17,8 +17,6 @@ terraform {
     key            = "terraform.tfstate"
     region         = "us-east-1"
     encrypt        = true
-    # KMS key ARN - update this after bootstrap
-    # kms_key_id     = "arn:aws:kms:us-east-1:ACCOUNT:key/KEY-ID"
   }
 }
 
@@ -48,16 +46,16 @@ data "aws_availability_zones" "available" {
 
 data "aws_caller_identity" "current" {}
 
-# Latest Ubuntu LTS AMI
-data "aws_ami" "ubuntu" {
+# Latest Amazon Linux 2023 AMI
+data "aws_ami" "al2023" {
   most_recent = true
-  owners      = ["099720109477"]  # Canonical
-  
+  owners      = ["137112412989"]  # Amazon
+
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-*-amd64-server-*"]
+    values = ["al2023-ami-*-x86_64"]
   }
-  
+
   filter {
     name   = "virtualization-type"
     values = ["hvm"]
@@ -86,24 +84,25 @@ module "ec2" {
   vpc_cidr              = var.vpc_cidr
   private_subnet_id     = module.vpc.private_subnet_ids[0]
   instance_type         = var.instance_type
-  ami_id                = data.aws_ami.ubuntu.id
+  ami_id                = data.aws_ami.al2023.id
   enable_ebs_encryption = var.enable_ebs_encryption
   ebs_kms_key_id        = var.ebs_kms_key_id
   allowed_ssh_cidrs     = var.allowed_ssh_cidrs
   enable_monitoring     = var.enable_monitoring
   
-  # CloudFront security
-  cloudfront_secret_header_name  = module.cloudfront.secret_header_name
-  cloudfront_secret_header_value = module.cloudfront.secret_header_value
-  cloudfront_secret_arn          = module.cloudfront.secrets_manager_arn
+  # CloudFront security (optional)
+  cloudfront_secret_header_name  = var.enable_cloudfront ? module.cloudfront[0].secret_header_name : ""
+  cloudfront_secret_header_value = var.enable_cloudfront ? module.cloudfront[0].secret_header_value : ""
+  cloudfront_secret_arn          = var.enable_cloudfront ? module.cloudfront[0].secrets_manager_arn : ""
   
   # GitHub repository for logo
   github_repo   = var.github_repo
   github_branch = var.github_branch
 }
 
-# Elastic IP for EC2 (needed for CloudFront origin)
+# Elastic IP for EC2 (only when CloudFront is enabled)
 resource "aws_eip" "ec2" {
+  count    = var.enable_cloudfront ? 1 : 0
   domain   = "vpc"
   instance = module.ec2.instance_id
 
@@ -114,12 +113,13 @@ resource "aws_eip" "ec2" {
   depends_on = [module.ec2]
 }
 
-# CloudFront Distribution Module
+# CloudFront Distribution Module (optional)
 module "cloudfront" {
+  count  = var.enable_cloudfront ? 1 : 0
   source = "./modules/cloudfront"
   
   project_name   = var.project_name
   environment    = var.environment
-  ec2_public_dns = aws_eip.ec2.public_dns
+  ec2_public_dns = aws_eip.ec2[0].public_dns
   enable_logging = false  # Set to true if you want access logs (requires S3 bucket)
 }

@@ -65,33 +65,27 @@ jobs:
           
           echo "Configuration loaded successfully"
 
-      - name: Fetch CloudFront secret from Secrets Manager
-        if: ${{ steps.config.outputs.secrets_manager_arn != '' }}
+      - name: Prepare CloudFront secret
         id: secrets
         run: |
-          echo "Fetching CloudFront secret header from AWS Secrets Manager..."
-          
-          SECRET_JSON=$(aws secretsmanager get-secret-value \
-            --secret-id ${{ steps.config.outputs.secrets_manager_arn }} \
-            --query SecretString \
-            --output text)
-          
-          HEADER_NAME=$(echo $SECRET_JSON | jq -r '.header_name')
-          HEADER_VALUE=$(echo $SECRET_JSON | jq -r '.header_value')
-          
-          echo "::add-mask::$HEADER_VALUE"
-          echo "header_name=$HEADER_NAME" >> $GITHUB_OUTPUT
-          echo "header_value=$HEADER_VALUE" >> $GITHUB_OUTPUT
-          
-          echo "Secret fetched successfully"
-
-      - name: Skip secret fetch (CloudFront disabled)
-        if: ${{ steps.config.outputs.secrets_manager_arn == '' }}
-        id: secrets
-        run: |
-          echo "CloudFront disabled or no secret ARN provided; skipping secret fetch."
-          echo "header_name=" >> $GITHUB_OUTPUT
-          echo "header_value=" >> $GITHUB_OUTPUT
+          ARN="${{ steps.config.outputs.secrets_manager_arn }}"
+          if [ -n "$ARN" ]; then
+            echo "Fetching CloudFront secret header from AWS Secrets Manager..."
+            SECRET_JSON=$(aws secretsmanager get-secret-value \
+              --secret-id "$ARN" \
+              --query SecretString \
+              --output text)
+            HEADER_NAME=$(echo "$SECRET_JSON" | jq -r '.header_name')
+            HEADER_VALUE=$(echo "$SECRET_JSON" | jq -r '.header_value')
+            echo "::add-mask::$HEADER_VALUE"
+            echo "header_name=$HEADER_NAME" >> $GITHUB_OUTPUT
+            echo "header_value=$HEADER_VALUE" >> $GITHUB_OUTPUT
+            echo "Secret fetched successfully"
+          else
+            echo "CloudFront disabled or no secret ARN provided; skipping secret fetch."
+            echo "header_name=" >> $GITHUB_OUTPUT
+            echo "header_value=" >> $GITHUB_OUTPUT
+          fi
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -171,23 +165,29 @@ jobs:
           echo "Verifying deployment..."
           CLOUDFRONT_URL="${{ steps.config.outputs.cloudfront_url }}"
           IMAGE_URL="${{ steps.config.outputs.image_url }}"
-          
-          echo "Testing CloudFront URL..."
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -L "$CLOUDFRONT_URL")
-          
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ CloudFront is responding correctly"
+
+          if [ -n "$CLOUDFRONT_URL" ]; then
+            echo "Testing CloudFront URL..."
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -L "$CLOUDFRONT_URL" || echo 000)
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "✅ CloudFront is responding correctly"
+            else
+              echo "⚠️  CloudFront returned HTTP $HTTP_CODE (may need time to propagate)"
+            fi
           else
-            echo "⚠️  CloudFront returned HTTP $HTTP_CODE (may need time to propagate)"
+            echo "CloudFront URL not provided; skipping CloudFront test."
           fi
-          
-          echo "Testing image URL..."
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -L "$IMAGE_URL")
-          
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ Image is accessible"
+
+          if [ -n "$IMAGE_URL" ]; then
+            echo "Testing image URL..."
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -L "$IMAGE_URL" || echo 000)
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "✅ Image is accessible"
+            else
+              echo "⚠️  Image returned HTTP $HTTP_CODE (may need time to propagate)"
+            fi
           else
-            echo "⚠️  Image returned HTTP $HTTP_CODE (may need time to propagate)"
+            echo "Image URL not provided; skipping image test."
           fi
 
       - name: Test direct EC2 access (should be blocked)

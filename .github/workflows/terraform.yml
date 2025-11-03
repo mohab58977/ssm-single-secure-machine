@@ -199,3 +199,4 @@ jobs:
           framework: terraform
           soft_fail: false
           download_external_modules: true
+          config_file: .checkov.yaml

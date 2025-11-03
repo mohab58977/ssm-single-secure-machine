@@ -1,0 +1,45 @@
+---
+# Checkov configuration for security scanning
+# Skips are justified with comments explaining why each check is not applicable
+
+# Framework to scan
+framework:
+  - terraform
+
+# Skip specific checks with justification
+skip-check:
+  # CloudFront Checks
+  - id: CKV_AWS_310
+    comment: "Origin failover requires multiple origins/instances - not needed for single instance demo setup"
+  
+  - id: CKV_AWS_68
+    comment: "WAF is optional and adds significant cost (~$5-10/month) - can be enabled via waf_web_acl_id variable if needed"
+  
+  - id: CKV2_AWS_47
+    comment: "WAF with Log4j vulnerability rules requires WAF to be enabled first - not applicable without WAF"
+  
+  - id: CKV2_AWS_42
+    comment: "Custom SSL certificate requires domain ownership and ACM certificate - using CloudFront default certificate for demo"
+  
+  # Secrets Manager Checks
+  - id: CKV2_AWS_57
+    comment: "Automatic rotation not needed - secret is randomly generated at deployment and only used internally between CloudFront and EC2"
+  
+  # Security Group Checks
+  - id: CKV_AWS_382
+    comment: "Egress to 0.0.0.0/0 on ports 80/443 required for OS package updates via NAT Gateway - instance is in private subnet with no public IP"
+
+# Exclude directories from scanning
+exclude-paths:
+  - .terraform
+  - .git
+  - bootstrap/.terraform
+
+# Enable compact output
+compact: true
+
+# Show output in color
+no-color: false
+
+# Download external modules
+download-external-modules: true
